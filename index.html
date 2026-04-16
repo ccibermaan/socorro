@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Link Defender - Neo Atari</title>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <style>
+        body {
+            background-color: #050505;
+            margin: 0; padding: 0;
+            display: flex; justify-content: center; align-items: center;
+            height: 100vh; overflow: hidden;
+            font-family: 'Press Start 2P', cursive;
+        }
+        #game-container {
+            position: relative;
+            border: 4px solid #1a1a1a;
+            border-radius: 8px;
+            background: #000;
+            box-shadow: 0 0 30px rgba(0, 255, 255, 0.1);
+        }
+        canvas {
+            display: block;
+            image-rendering: pixelated;
+            width: 600px; height: 600px;
+        }
+        #ui-overlay {
+            display: none;
+            position: absolute; top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center; color: #fff;
+            background: rgba(0,0,0,0.85); padding: 30px;
+            border: 2px solid #0ff; outline: 10px solid rgba(0,0,0,0.5);
+            z-index: 10;
+        }
+        button {
+            padding: 15px 25px; font-family: 'Press Start 2P', cursive;
+            background: #0ff; color: #000; border: none; cursor: pointer; 
+            margin-top: 20px; box-shadow: 0 0 10px #0ff;
+            transition: transform 0.1s;
+        }
+        button:hover { transform: scale(1.05); background: #fff; }
+        #hud {
+            position: absolute; top: 15px; left: 15px;
+            font-size: 10px; color: #fff; text-shadow: 0 0 5px #0ff;
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <div id="hud">CORE STATUS: STABLE | SCORE: 0</div>
+        <canvas id="gameCanvas" width="300" height="300"></canvas>
+        <div id="ui-overlay">
+            <h1 style="color: #ff3e3e; font-size: 18px; margin-bottom: 5px;">CORE REACHED</h1>
+            <p id="final-score" style="font-size: 10px; color: #0ff;"></p>
+            <button onclick="resetGame()">RESTORE LINK</button>
+            <p style="font-size: 8px; margin-top: 15px; color: #555;">SPACE TO RESTART</p>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const middle = 150;
+        const shieldR = 65;
+        
+        let shieldAngle = 0;
+        let score = 0;
+        let gameState = 'PLAY';
+        let frameCount = 0;
+        
+        let fragments = [];
+        let tokens = [];
+        let particles = [];
+        let stars = [];
+
+        // Generate static Starfield
+        for (let i = 0; i < 60; i++) {
+            stars.push({
+                x: Math.random() * 300,
+                y: Math.random() * 300,
+                size: Math.random() * 1.5,
+                alpha: Math.random()
+            });
+        }
+
+        const keys = { Left: false, Right: false };
+        window.addEventListener('keydown', e => {
+            if (e.code === 'ArrowLeft' || e.code === 'KeyA') keys.Left = true;
+            if (e.code === 'ArrowRight' || e.code === 'KeyD') keys.Right = true;
+            if (e.code === 'Space' && gameState !== 'PLAY') resetGame();
+        });
+        window.addEventListener('keyup', e => {
+            if (e.code === 'ArrowLeft' || e.code === 'KeyA') keys.Left = false;
+            if (e.code === 'ArrowRight' || e.code === 'KeyD') keys.Right = false;
+        });
+
+        function resetGame() {
+            score = 0; fragments = []; tokens = []; particles = [];
+            shieldAngle = 0; gameState = 'PLAY';
+            document.getElementById('ui-overlay').style.display = 'none';
+        }
+
+        function createParticles(x, y, color) {
+            for (let i = 0; i < 8; i++) {
+                particles.push({
+                    x: x, y: y,
+                    vx: (Math.random() - 0.5) * 4,
+                    vy: (Math.random() - 0.5) * 4,
+                    life: 1.0,
+                    color: color
+                });
+            }
+        }
+
+        function spawnFragment() {
+            let a = Math.random() * Math.PI * 2;
+            fragments.push({ x: middle + Math.cos(a) * 200, y: middle + Math.sin(a) * 200, s: 1.2 + (score/1000) });
+        }
+
+        function update() {
+            if (gameState !== 'PLAY') return;
+            frameCount++;
+
+            // Shield rotation
+            if (keys.Left) shieldAngle -= 0.08;
+            if (keys.Right) shieldAngle += 0.08;
+
+            if (frameCount % Math.max(10, 50 - Math.floor(score/150)) === 0) spawnFragment();
+            if (frameCount % 240 === 0) {
+                let a = Math.random() * Math.PI * 2;
+                tokens.push({ x: middle + Math.cos(a) * 200, y: middle + Math.sin(a) * 200, s: 1.5 });
+            }
+
+            // Update entities
+            fragments.forEach((f, i) => {
+                let dx = middle - f.x; let dy = middle - f.y;
+                let d = Math.sqrt(dx*dx + dy*dy);
+                f.x += (dx/d) * f.s; f.y += (dy/d) * f.s;
+
+                if (d < 12) {
+                    gameState = 'GAMEOVER';
+                    document.getElementById('ui-overlay').style.display = 'block';
+                    document.getElementById('final-score').innerText = "DATA BLOCKS PROTECTED: " + score;
+                }
+
+                if (d > shieldR - 5 && d < shieldR + 5) {
+                    let fa = (Math.atan2(f.y - middle, f.x - middle) + Math.PI * 2) % (Math.PI * 2);
+                    let sa = (shieldAngle % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2);
+                    let diff = Math.abs(fa - sa);
+                    if (diff < 0.6 || diff > (Math.PI * 2 - 0.6)) {
+                        createParticles(f.x, f.y, '#f00');
+                        fragments.splice(i, 1);
+                        score += 5;
+                    }
+                }
+            });
+
+            tokens.forEach((t, i) => {
+                let dx = middle - t.x; let dy = middle - t.y;
+                let d = Math.sqrt(dx*dx + dy*dy);
+                t.x += (dx/d) * t.s; t.y += (dy/d) * t.s;
+                if (d < 12) tokens.splice(i, 1);
+                if (d > shieldR - 5 && d < shieldR + 5) {
+                    let fa = (Math.atan2(t.y - middle, t.x - middle) + Math.PI * 2) % (Math.PI * 2);
+                    let sa = (shieldAngle % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2);
+                    let diff = Math.abs(fa - sa);
+                    if (diff < 0.6 || diff > (Math.PI * 2 - 0.6)) {
+                        createParticles(t.x, t.y, '#fff');
+                        tokens.splice(i, 1); score += 50;
+                    }
+                }
+            });
+
+            particles.forEach((p, i) => {
+                p.x += p.vx; p.y += p.vy; p.life -= 0.04;
+                if (p.life <= 0) particles.splice(i, 1);
+            });
+
+            document.getElementById('hud').innerText = `CORE STATUS: ${gameState === 'PLAY' ? 'STABLE' : 'CRITICAL'} | SCORE: ${score}`;
+        }
+
+        function render() {
+            ctx.fillStyle = '#000'; ctx.fillRect(0, 0, 300, 300);
+
+            // Stars
+            stars.forEach(s => {
+                ctx.fillStyle = `rgba(255,255,255,${s.alpha})`;
+                ctx.fillRect(s.x, s.y, s.size, s.size);
+            });
+
+            // Particles
+            particles.forEach(p => {
+                ctx.fillStyle = p.color;
+                ctx.globalAlpha = p.life;
+                ctx.fillRect(p.x, p.y, 2, 2);
+            });
+            ctx.globalAlpha = 1.0;
+
+            // Core Glow and Pulse
+            let pulse = Math.sin(frameCount * 0.1) * 2;
+            ctx.shadowBlur = 15; ctx.shadowColor = '#fff';
+            ctx.fillStyle = '#fff';
+            ctx.fillRect(middle - (5 + pulse/2), middle - (5 + pulse/2), 10 + pulse, 10 + pulse);
+
+            // Tokens (Neo Green)
+            ctx.shadowBlur = 10; ctx.shadowColor = '#0f0';
+            tokens.forEach(t => {
+                ctx.fillStyle = '#0f0';
+                ctx.fillRect(t.x - 2, t.y - 2, 4, 4);
+            });
+
+            // Fragments
+            ctx.shadowBlur = 0;
+            fragments.forEach(f => {
+                if (frameCount % 4 < 2) {
+                    ctx.fillStyle = '#ff3e3e';
+                    ctx.fillRect(f.x - 3, f.y - 3, 6, 6);
+                }
+            });
+
+            // Shield (Neo Cyan Glow)
+            ctx.shadowBlur = 15; ctx.shadowColor = '#0ff';
+            ctx.strokeStyle = '#0ff'; ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.arc(middle, middle, shieldR, shieldAngle - 0.6, shieldAngle + 0.6);
+            ctx.stroke();
+            ctx.shadowBlur = 0;
+        }
+
+        function loop() {
+            update(); render(); requestAnimationFrame(loop);
+        }
+        loop();
+    </script>
+</body>
+</html>
